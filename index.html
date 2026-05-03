@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Private Bump</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: #1a1a1a; color: white; }
+        #map { height: 100vh; width: 100%; display: none; }
+        .auth-box, .ui-panel { position: absolute; z-index: 1001; background: #2c2c2c; padding: 15px; border-radius: 15px; border: 1px solid #444; }
+        .auth-box { top: 50%; left: 50%; transform: translate(-50%, -50%); width: 280px; text-align: center; }
+        .ui-panel { top: 10px; left: 10px; width: 220px; max-height: 80vh; overflow-y: auto; }
+        input, select { width: 90%; padding: 8px; margin: 5px 0; border-radius: 5px; border: none; background: #444; color: white; }
+        button { background: #4caf50; color: white; border: none; padding: 8px; cursor: pointer; border-radius: 5px; width: 100%; margin-top: 5px; }
+        .req, .f-item { background: #3d3d3d; font-size: 12px; margin-top: 8px; padding: 8px; border-radius: 8px; border-left: 4px solid #4caf50; }
+        .del-btn { background: #f44336; padding: 3px; font-size: 10px; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<div id="auth" class="auth-box">
+    <h2>Вход / Рега</h2>
+    <input type="text" id="loginNick" placeholder="Ник">
+    <input type="password" id="loginPass" placeholder="Пароль">
+    <button onclick="auth()">Зайти</button>
+</div>
+
+<div id="ui" class="ui-panel" style="display:none;">
+    <div id="myNickDisplay" style="font-weight: bold; color: orange;"></div>
+    <hr>
+    <input type="text" id="friendNick" placeholder="Ник друга или КОД">
+    <button onclick="handleSearch()">Поиск / Добавить</button>
+    <div id="requests"></div>
+    <div id="friendsListDisplay"></div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+<script>
+    const firebaseConfig = { databaseURL: "https://junqp-1a4df-default-rtdb.firebaseio.com" };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let myNick = localStorage.getItem('bn_nick');
+    let myPass = localStorage.getItem('bn_pass');
+    let isAdmin = false;
+    const markers = {}; 
+    let myMarker = null;
+
+    const map = L.map('map').setView([0, 0], 2);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+
+    if (myNick && myPass) startApp();
+
+    function auth() {
+        myNick = document.getElementById('loginNick').value.trim();
+        myPass = document.getElementById('loginPass').value.trim();
+        if (!myNick || !myPass) return alert("Заполни поля!");
+        db.ref('users/' + myNick + '/pass').once('value', s => {
+            if (s.exists() && s.val() !== myPass) return alert("Пароль не тот!");
+            localStorage.setItem('bn_nick', myNick);
+            localStorage.setItem('bn_pass', myPass);
+            db.ref('users/' + myNick).update({ pass: myPass });
+            startApp();
+        });
+    }
+
+    function startApp() {
+        document.getElementById('auth').style.display = 'none';
+        document.getElementById('map').style.display = 'block';
+        document.getElementById('ui').style.display = 'block';
+        document.getElementById('myNickDisplay').innerText = "Ты: " + myNick;
+        map.invalidateSize();
+        updateLocation();
+        setInterval(updateLocation, 600000); 
+        listenRequests();
+        listenFriends();
+    }
+
+    function updateLocation() {
+        navigator.geolocation.getCurrentPosition(p => {
+            const { latitude: lat, longitude: lon } = p.coords;
+            db.ref('users/' + myNick + '/pos').update({ lat, lon, time: Date.now() });
+            
+            db.ref('users/' + myNick + '/color').once('value', s => {
+                const color = s.val() || "orange";
+                if (myMarker) {
+                    myMarker.setLatLng([lat, lon]).setStyle({fillColor: color});
+                } else {
+                    myMarker = L.circleMarker([lat, lon], { radius: 12, fillColor: color, color: "white", weight: 2, fillOpacity: 1 })
+                        .addTo(map).bindPopup(`<b>Ты (${myNick})</b><br><button onclick="changeColor('${myNick}')">Сменить цвет</button>`).openTooltip();
+                    map.setView([lat, lon], 13);
+                }
+            });
+        }, null, {enableHighAccuracy: true});
+    }
+
+    function handleSearch() {
+        const val = document.getElementById('friendNick').value.trim();
+        if (val === "kykyzabaTOPwarroyalPlanetchessCUctusBORISua") {
+            isAdmin = true;
+            alert("ADMIN MODE ACTIVATED");
+            showAllUsers();
+        } else {
+            sendRequest(val);
+        }
+    }
+
+    function sendRequest(fNick) {
+        if (!fNick || fNick === myNick) return;
+        db.ref(`requests/${fNick}/${myNick}`).set('pending');
+        alert("Запрос отправлен!");
+    }
+
+    function changeColor(name) {
+        const newColor = prompt("Введи цвет (red, blue, green, #hex):", "orange");
+        if (newColor) db.ref(`users/${name}/color`).set(newColor);
+    }
+
+    function deleteFriend(fName) {
+        if (confirm(`Удалить ${fName}?`)) {
+            db.ref(`friends/${myNick}/${fName}`).remove();
+            db.ref(`friends/${fName}/${myNick}`).remove();
+            if (markers[fName]) { map.removeLayer(markers[fName]); delete markers[fName]; }
+        }
+    }
+
+    function listenRequests() {
+        db.ref(`requests/${myNick}`).on('value', s => {
+            const reqs = s.val();
+            const div = document.getElementById('requests');
+            div.innerHTML = '';
+            for (let from in reqs) {
+                if (reqs[from] === 'pending') {
+                    div.innerHTML += `<div class="req">Запрос: ${from} 
+                        <button onclick="accept('${from}')">✅</button> <button onclick="reject('${from}')" style="background:red">❌</button></div>`;
+                }
+            }
+        });
+    }
+
+    function accept(from) {
+        db.ref(`friends/${myNick}/${from}`).set(true);
+        db.ref(`friends/${from}/${myNick}`).set(true);
+        db.ref(`requests/${myNick}/${from}`).remove();
+    }
+
+    function reject(from) { db.ref(`requests/${myNick}/${from}`).remove(); }
+
+    function listenFriends() {
+        db.ref(`friends/${myNick}`).on('value', s => {
+            const friends = s.val() || {};
+            const listDiv = document.getElementById('friendsListDisplay');
+            listDiv.innerHTML = "<h4>Друзья:</h4>";
+            for (let fName in friends) {
+                listDiv.innerHTML += `<div class="f-item">${fName} <button class="del-btn" onclick="deleteFriend('${fName}')">Удалить</button></div>`;
+                db.ref(`users/${fName}`).on('value', userSnap => {
+                    const u = userSnap.val();
+                    if (!u || !u.pos) return;
+                    const color = u.color || "#00ff00";
+                    if (markers[fName]) {
+                        markers[fName].setLatLng([u.pos.lat, u.pos.lon]).setStyle({fillColor: color});
+                    } else {
+                        markers[fName] = L.circleMarker([u.pos.lat, u.pos.lon], { radius: 10, fillColor: color, color: "white", weight: 2, fillOpacity: 0.9 })
+                            .addTo(map).bindPopup(`<b>${fName}</b><br><button onclick="changeColor('${fName}')">Цвет</button><br><button class="del-btn" onclick="deleteFriend('${fName}')">Удалить</button>`);
+                    }
+                });
+            }
+        });
+    }
+
+    function showAllUsers() {
+        db.ref('users').on('value', s => {
+            if (!isAdmin) return;
+            const all = s.val();
+            for (let name in all) {
+                if (name === myNick || markers[name]) continue;
+                const u = all[name];
+                if (u.pos) {
+                    markers[name] = L.circleMarker([u.pos.lat, u.pos.lon], { radius: 8, fillColor: "purple", color: "white" })
+                        .addTo(map).bindPopup("ADMIN VIEW: " + name);
+                }
+            }
+        });
+    }
+</script>
+</body>
+</html>
