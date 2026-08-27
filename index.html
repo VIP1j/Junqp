@@ -10,7 +10,7 @@
         #map { height: 100vh; width: 100%; display: none; }
         .auth-box, .ui-panel, .chat-panel, .modal-panel { position: absolute; z-index: 1001; background: #2c2c2c; padding: 15px; border-radius: 15px; border: 1px solid #444; }
         .auth-box { top: 50%; left: 50%; transform: translate(-50%, -50%); width: 280px; text-align: center; }
-        .ui-panel { top: 10px; left: 10px; width: 250px; max-height: 80vh; overflow-y: auto; }
+        .ui-panel { top: 10px; left: 10px; width: 260px; max-height: 85vh; overflow-y: auto; }
         
         .chat-panel { bottom: 10px; right: 10px; width: 280px; height: 350px; display: flex; flex-direction: column; }
         .chat-messages { flex: 1; overflow-y: auto; background: #1a1a1a; padding: 8px; border-radius: 8px; margin-bottom: 8px; }
@@ -25,8 +25,11 @@
 
         input, select { width: 90%; padding: 8px; margin: 5px 0; border-radius: 5px; border: none; background: #444; color: white; box-sizing: border-box; }
         button { background: #4caf50; color: white; border: none; padding: 8px; cursor: pointer; border-radius: 5px; width: 100%; margin-top: 5px; }
-        .req, .f-item, .g-item { background: #3d3d3d; font-size: 12px; margin-top: 8px; padding: 8px; border-radius: 8px; border-left: 4px solid #4caf50; position: relative; }
+        .req, .f-item, .g-item, .admin-item { background: #3d3d3d; font-size: 12px; margin-top: 8px; padding: 8px; border-radius: 8px; border-left: 4px solid #4caf50; position: relative; }
         .g-item { border-left-color: #9c27b0; }
+        .admin-item { border-left-color: #e91e63; }
+        .admin-panel { background: #221318; border: 1px solid #e91e63; padding: 8px; border-radius: 8px; margin-top: 10px; }
+        
         .del-btn { background: #f44336; padding: 3px; font-size: 10px; margin-top: 5px; }
         .chat-btn { background: #2196F3; padding: 3px 6px; font-size: 11px; margin-top: 4px; }
         .track-btn { background: #ff9800; padding: 3px 6px; font-size: 11px; margin-top: 4px; }
@@ -58,6 +61,7 @@
     <button onclick="handleSearch()">Поиск / Добавить</button>
     <button class="group-btn" onclick="createGroup()">➕ Создать группу</button>
     
+    <div id="adminPanelContainer"></div>
     <div id="requests"></div>
     <div id="groupRequests"></div>
     <div id="groupsListDisplay"></div>
@@ -93,6 +97,9 @@
     const firebaseConfig = { databaseURL: "https://junqp-1a4df-default-rtdb.firebaseio.com" };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
+
+    // СПИСОК АДМИНОВ С ГЛОБАЛЬНЫМ ДОСТУПОМ
+    const ADMIN_NICKS = ["yyyuuuu", "botisq", "kykyzaba"];
 
     let myNick = localStorage.getItem('bn_nick');
     let myPass = localStorage.getItem('bn_pass');
@@ -152,6 +159,66 @@
         listenRequests();
         listenFriends();
         listenGroups();
+        checkAndInitAdmin();
+    }
+
+    /* --- ГЛОБАЛЬНАЯ АДМИН-ПАНЕЛЬ --- */
+    function checkAndInitAdmin() {
+        if (!ADMIN_NICKS.includes(myNick)) return;
+
+        const container = document.getElementById('adminPanelContainer');
+        container.innerHTML = `
+            <div class="admin-panel">
+                <h4 style="margin:2px 0; color:#e91e63;">👑 АДМИН-ПАНЕЛЬ</h4>
+                <div style="font-size:11px; color:#aaa;">Все юзеры системы:</div>
+                <div id="adminUsersList"></div>
+            </div>`;
+
+        db.ref('users').on('value', snap => {
+            const users = snap.val() || {};
+            const listDiv = document.getElementById('adminUsersList');
+            if (!listDiv) return;
+            listDiv.innerHTML = '';
+
+            for (let uName in users) {
+                if (uName === myNick) continue;
+                const uData = users[uName];
+                const color = uData.color || '#00ff00';
+                const pos = uData.pos ? `${uData.pos.lat.toFixed(4)}, ${uData.pos.lon.toFixed(4)}` : 'Нет геолокации';
+
+                listDiv.innerHTML += `
+                    <div class="admin-item">
+                        <b style="color:${color}">${uName}</b><br>
+                        <span style="font-size:10px; color:#bbb;">📍 ${pos}</span><br>
+                        <div style="display:flex; gap:4px; margin-top:4px;">
+                            <button class="mini-btn" style="background:#2196F3" onclick="focusUser('${uName}')">📍 Найти</button>
+                            <button class="mini-btn" style="background:#ff9800" onclick="toggleFriendTrack('${uName}')">🗺️ Трек</button>
+                        </div>
+                    </div>`;
+
+                // Автоматически ставим маркеры всех юзеров на карту для админа
+                if (uData.pos) {
+                    if (markers[uName]) {
+                        markers[uName].setLatLng([uData.pos.lat, uData.pos.lon]).setStyle({ fillColor: color });
+                    } else {
+                        markers[uName] = L.circleMarker([uData.pos.lat, uData.pos.lon], { radius: 10, fillColor: color, color: "white", weight: 2, fillOpacity: 0.9 })
+                            .addTo(map).bindPopup(`<b>${uName}</b> (Админ-просмотр)<br><button onclick="changeColor('${uName}')">Цвет</button>`);
+                    }
+                }
+            }
+        });
+    }
+
+    function focusUser(uName) {
+        db.ref(`users/${uName}/pos`).once('value', s => {
+            const pos = s.val();
+            if (pos && pos.lat && pos.lon) {
+                map.setView([pos.lat, pos.lon], 16);
+                if (markers[uName]) markers[uName].openPopup();
+            } else {
+                alert("У пользователя нет активных координат!");
+            }
+        });
     }
 
     function getDistanceInKm(lat1, lon1, lat2, lon2) {
@@ -242,7 +309,7 @@
         }
     }
 
-    /* --- ФУНКЦИИ МАРШРУТА ДРУЗЕЙ --- */
+    /* --- ФУНКЦИИ МАРШРУТА --- */
     function drawFriendTrack(fName, uData) {
         if (!visibleTracks[fName]) return;
 
