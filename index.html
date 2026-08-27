@@ -8,13 +8,37 @@
     <style>
         body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: #1a1a1a; color: white; }
         #map { height: 100vh; width: 100%; display: none; }
-        .auth-box, .ui-panel { position: absolute; z-index: 1001; background: #2c2c2c; padding: 15px; border-radius: 15px; border: 1px solid #444; }
+        .auth-box, .ui-panel, .chat-panel, .modal-panel { position: absolute; z-index: 1001; background: #2c2c2c; padding: 15px; border-radius: 15px; border: 1px solid #444; }
         .auth-box { top: 50%; left: 50%; transform: translate(-50%, -50%); width: 280px; text-align: center; }
-        .ui-panel { top: 10px; left: 10px; width: 220px; max-height: 80vh; overflow-y: auto; }
-        input, select { width: 90%; padding: 8px; margin: 5px 0; border-radius: 5px; border: none; background: #444; color: white; }
+        .ui-panel { top: 10px; left: 10px; width: 250px; max-height: 80vh; overflow-y: auto; }
+        
+        .chat-panel { bottom: 10px; right: 10px; width: 280px; height: 350px; display: flex; flex-direction: column; }
+        .chat-messages { flex: 1; overflow-y: auto; background: #1a1a1a; padding: 8px; border-radius: 8px; margin-bottom: 8px; }
+        .msg { background: #3d3d3d; padding: 5px 8px; border-radius: 6px; margin-bottom: 5px; font-size: 13px; word-break: break-word; position: relative; }
+        .msg.my { background: #4caf50; text-align: right; }
+        .ticks { font-size: 11px; margin-left: 5px; font-weight: bold; color: #aeffae; }
+
+        .modal-panel { top: 50%; left: 50%; transform: translate(-50%, -50%); width: 280px; max-height: 350px; overflow-y: auto; display: none; z-index: 1002; }
+        .member-item { background: #3d3d3d; padding: 6px 10px; border-radius: 6px; margin-bottom: 5px; font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+        .member-info { display: flex; justify-content: space-between; align-items: center; }
+        .member-actions { display: flex; gap: 5px; margin-top: 3px; }
+
+        input, select { width: 90%; padding: 8px; margin: 5px 0; border-radius: 5px; border: none; background: #444; color: white; box-sizing: border-box; }
         button { background: #4caf50; color: white; border: none; padding: 8px; cursor: pointer; border-radius: 5px; width: 100%; margin-top: 5px; }
-        .req, .f-item { background: #3d3d3d; font-size: 12px; margin-top: 8px; padding: 8px; border-radius: 8px; border-left: 4px solid #4caf50; }
+        .req, .f-item, .g-item { background: #3d3d3d; font-size: 12px; margin-top: 8px; padding: 8px; border-radius: 8px; border-left: 4px solid #4caf50; position: relative; }
+        .g-item { border-left-color: #9c27b0; }
         .del-btn { background: #f44336; padding: 3px; font-size: 10px; margin-top: 5px; }
+        .chat-btn { background: #2196F3; padding: 3px 6px; font-size: 11px; margin-top: 4px; }
+        .track-btn { background: #ff9800; padding: 3px 6px; font-size: 11px; margin-top: 4px; }
+        .group-btn { background: #9c27b0; padding: 5px; font-size: 11px; margin-top: 5px; }
+        .members-btn { background: #00bcd4; padding: 3px 6px; font-size: 11px; margin-top: 4px; }
+        .mini-btn { padding: 3px 6px; font-size: 10px; width: auto; margin-top: 0; }
+        
+        .unread-badge { color: #ff5252; font-weight: bold; margin-left: 5px; }
+        #typingStatus { font-size: 11px; color: #ffeb3b; font-style: italic; min-height: 16px; margin-bottom: 4px; }
+        
+        .leaflet-control-layers { background: #2c2c2c !important; color: white !important; border: 1px solid #444 !important; border-radius: 8px !important; }
+        .leaflet-control-layers-expanded { padding: 10px !important; }
     </style>
 </head>
 <body>
@@ -28,11 +52,35 @@
 
 <div id="ui" class="ui-panel" style="display:none;">
     <div id="myNickDisplay" style="font-weight: bold; color: orange;"></div>
+    <div id="distanceDisplay" style="font-size: 12px; color: #4caf50; margin-top: 4px;">Пройдено: 0 км</div>
     <hr>
-    <input type="text" id="friendNick" placeholder="Ник друга или КОД">
+    <input type="text" id="friendNick" placeholder="Ник друга">
     <button onclick="handleSearch()">Поиск / Добавить</button>
+    <button class="group-btn" onclick="createGroup()">➕ Создать группу</button>
+    
     <div id="requests"></div>
+    <div id="groupRequests"></div>
+    <div id="groupsListDisplay"></div>
     <div id="friendsListDisplay"></div>
+</div>
+
+<div id="chatBox" class="chat-panel" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <b id="chatTitle">Чат</b>
+        <button onclick="closeChat()" style="width: auto; background: red; padding: 2px 6px;">✕</button>
+    </div>
+    <div id="typingStatus"></div>
+    <div id="chatMessages" class="chat-messages"></div>
+    <input type="text" id="chatInput" placeholder="Сообщение..." oninput="handleTyping()" onkeypress="if(event.key==='Enter') sendMsg()">
+    <button onclick="sendMsg()">Отправить</button>
+</div>
+
+<div id="membersBox" class="modal-panel">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+        <b id="membersTitle">Участники</b>
+        <button onclick="closeMembersModal()" style="width: auto; background: red; padding: 2px 6px;">✕</button>
+    </div>
+    <div id="membersList"></div>
 </div>
 
 <div id="map"></div>
@@ -48,12 +96,34 @@
 
     let myNick = localStorage.getItem('bn_nick');
     let myPass = localStorage.getItem('bn_pass');
-    let isAdmin = false;
+    let activeChatId = null;
+    let activeChatType = null;
+    let typingTimeout = null;
+
     const markers = {}; 
+    const polylines = {}; 
+    const visibleTracks = {}; 
+    const unreadMap = {}; 
+
     let myMarker = null;
+    let myPolyline = null;
+    let lastLat = null;
+    let lastLon = null;
 
     const map = L.map('map').setView([0, 0], 2);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+
+    const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 });
+    const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18 });
+    const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+
+    darkLayer.addTo(map);
+
+    const baseMaps = {
+        "🌑 Темная": darkLayer,
+        "🛰️ Спутник": satelliteLayer,
+        "🗺️ Обычная": streetLayer
+    };
+    L.control.layers(baseMaps).addTo(map);
 
     if (myNick && myPass) startApp();
 
@@ -76,25 +146,72 @@
         document.getElementById('ui').style.display = 'block';
         document.getElementById('myNickDisplay').innerText = "Ты: " + myNick;
         map.invalidateSize();
+        
         updateLocation();
-        setInterval(updateLocation, 600000); 
+        setInterval(updateLocation, 33000); 
         listenRequests();
         listenFriends();
+        listenGroups();
+    }
+
+    function getDistanceInKm(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }
+
+    function calculateTotalDistance(pathArray) {
+        let total = 0;
+        for (let i = 0; i < pathArray.length - 1; i++) {
+            const dist = getDistanceInKm(pathArray[i][0], pathArray[i][1], pathArray[i+1][0], pathArray[i+1][1]);
+            if (dist > 0.015) {
+                total += dist;
+            }
+        }
+        return total.toFixed(2);
     }
 
     function updateLocation() {
         navigator.geolocation.getCurrentPosition(p => {
             const { latitude: lat, longitude: lon } = p.coords;
-            db.ref('users/' + myNick + '/pos').update({ lat, lon, time: Date.now() });
+            const now = Date.now();
+
+            if (lastLat !== null && getDistanceInKm(lastLat, lastLon, lat, lon) < 0.01) {
+                return;
+            }
             
-            db.ref('users/' + myNick + '/color').once('value', s => {
-                const color = s.val() || "orange";
+            lastLat = lat;
+            lastLon = lon;
+
+            db.ref('users/' + myNick + '/pos').update({ lat, lon, time: now });
+            db.ref('users/' + myNick + '/history/' + now).set({ lat, lon });
+
+            db.ref('users/' + myNick).once('value', s => {
+                const uData = s.val() || {};
+                const color = uData.color || "orange";
+                const historyObj = uData.history || {};
+                
+                const pathArray = Object.keys(historyObj).sort().map(k => [historyObj[k].lat, historyObj[k].lon]);
+                const dist = calculateTotalDistance(pathArray);
+                document.getElementById('distanceDisplay').innerText = `Пройдено: ${dist} км`;
+
+                if (myPolyline) {
+                    myPolyline.setLatLngs(pathArray).setStyle({color: color});
+                } else {
+                    myPolyline = L.polyline(pathArray, {color: color, weight: 4, opacity: 0.8}).addTo(map);
+                }
+
                 if (myMarker) {
                     myMarker.setLatLng([lat, lon]).setStyle({fillColor: color});
                 } else {
                     myMarker = L.circleMarker([lat, lon], { radius: 12, fillColor: color, color: "white", weight: 2, fillOpacity: 1 })
-                        .addTo(map).bindPopup(`<b>Ты (${myNick})</b><br><button onclick="changeColor('${myNick}')">Сменить цвет</button>`).openTooltip();
-                    map.setView([lat, lon], 13);
+                        .addTo(map).bindPopup(`<b>Ты (${myNick})</b><br><button onclick="changeColor('${myNick}')">Сменить цвет</button>`);
+                    map.setView([lat, lon], 14);
                 }
             });
         }, null, {enableHighAccuracy: true});
@@ -102,13 +219,7 @@
 
     function handleSearch() {
         const val = document.getElementById('friendNick').value.trim();
-        if (val === "kykyzabaTOPwarroyalPlanetchessCUctusBORISua") {
-            isAdmin = true;
-            alert("ADMIN MODE ACTIVATED");
-            showAllUsers();
-        } else {
-            sendRequest(val);
-        }
+        sendRequest(val);
     }
 
     function sendRequest(fNick) {
@@ -127,6 +238,45 @@
             db.ref(`friends/${myNick}/${fName}`).remove();
             db.ref(`friends/${fName}/${myNick}`).remove();
             if (markers[fName]) { map.removeLayer(markers[fName]); delete markers[fName]; }
+            if (polylines[fName]) { map.removeLayer(polylines[fName]); delete polylines[fName]; }
+        }
+    }
+
+    /* --- ФУНКЦИИ МАРШРУТА ДРУЗЕЙ --- */
+    function drawFriendTrack(fName, uData) {
+        if (!visibleTracks[fName]) return;
+
+        const color = uData.color || "#00ff00";
+        const historyObj = uData.history || {};
+        
+        const fPath = Object.keys(historyObj)
+            .sort()
+            .map(key => [historyObj[key].lat, historyObj[key].lon]);
+
+        if (fPath.length < 1) return;
+
+        if (polylines[fName]) {
+            polylines[fName].setLatLngs(fPath).setStyle({ color: color });
+        } else {
+            polylines[fName] = L.polyline(fPath, { color: color, weight: 4, opacity: 0.8 }).addTo(map);
+        }
+    }
+
+    function toggleFriendTrack(fName) {
+        visibleTracks[fName] = !visibleTracks[fName];
+        
+        if (visibleTracks[fName]) {
+            db.ref(`users/${fName}`).once('value', userSnap => {
+                const u = userSnap.val();
+                if (u) drawFriendTrack(fName, u);
+            });
+            alert(`Маршрут ${fName} включен`);
+        } else {
+            if (polylines[fName]) {
+                map.removeLayer(polylines[fName]);
+                delete polylines[fName];
+            }
+            alert(`Маршрут ${fName} скрыт`);
         }
     }
 
@@ -137,7 +287,7 @@
             div.innerHTML = '';
             for (let from in reqs) {
                 if (reqs[from] === 'pending') {
-                    div.innerHTML += `<div class="req">Запрос: ${from} 
+                    div.innerHTML += `<div class="req">Запрос в друзья: ${from} 
                         <button onclick="accept('${from}')">✅</button> <button onclick="reject('${from}')" style="background:red">❌</button></div>`;
                 }
             }
@@ -158,35 +308,303 @@
             const listDiv = document.getElementById('friendsListDisplay');
             listDiv.innerHTML = "<h4>Друзья:</h4>";
             for (let fName in friends) {
-                listDiv.innerHTML += `<div class="f-item">${fName} <button class="del-btn" onclick="deleteFriend('${fName}')">Удалить</button></div>`;
+                const isUnread = unreadMap[fName] ? '<span class="unread-badge">🔴 (Новое!)</span>' : '';
+                
+                listDiv.innerHTML += `
+                    <div class="f-item" id="friend-card-${fName}">
+                        <b>${fName}</b> ${isUnread}<br>
+                        <button class="chat-btn" onclick="openChat('${fName}', 'user')">💬 Чат</button>
+                        <button class="track-btn" onclick="toggleFriendTrack('${fName}')">🗺️ Маршрут</button>
+                        <button class="del-btn" onclick="deleteFriend('${fName}')">Удалить</button>
+                    </div>`;
+
+                listenUnreadMessages(fName);
+
                 db.ref(`users/${fName}`).on('value', userSnap => {
                     const u = userSnap.val();
                     if (!u || !u.pos) return;
                     const color = u.color || "#00ff00";
+
+                    if (visibleTracks[fName]) {
+                        drawFriendTrack(fName, u);
+                    }
+
                     if (markers[fName]) {
-                        markers[fName].setLatLng([u.pos.lat, u.pos.lon]).setStyle({fillColor: color});
+                        markers[fName].setLatLng([u.pos.lat, u.pos.lon]).setStyle({ fillColor: color });
                     } else {
                         markers[fName] = L.circleMarker([u.pos.lat, u.pos.lon], { radius: 10, fillColor: color, color: "white", weight: 2, fillOpacity: 0.9 })
-                            .addTo(map).bindPopup(`<b>${fName}</b><br><button onclick="changeColor('${fName}')">Цвет</button><br><button class="del-btn" onclick="deleteFriend('${fName}')">Удалить</button>`);
+                            .addTo(map).bindPopup(`<b>${fName}</b><br><button onclick="changeColor('${fName}')">Цвет</button><br><button class="chat-btn" onclick="openChat('${fName}', 'user')">💬 Чат</button>`);
                     }
                 });
             }
         });
     }
 
-    function showAllUsers() {
-        db.ref('users').on('value', s => {
-            if (!isAdmin) return;
-            const all = s.val();
-            for (let name in all) {
-                if (name === myNick || markers[name]) continue;
-                const u = all[name];
-                if (u.pos) {
-                    markers[name] = L.circleMarker([u.pos.lat, u.pos.lon], { radius: 8, fillColor: "purple", color: "white" })
-                        .addTo(map).bindPopup("ADMIN VIEW: " + name);
+    /* --- СИСТЕМА УПРАВЛЕНИЯ ГРУППОЙ --- */
+    function createGroup() {
+        const gName = prompt("Введи название группы:");
+        if (!gName) return;
+        const gId = 'group_' + Date.now();
+        
+        db.ref(`groups/${gId}`).set({
+            name: gName,
+            admin: myNick,
+            members: { [myNick]: true }
+        });
+        db.ref(`user_groups/${myNick}/${gId}`).set(gName);
+        alert(`Группа "${gName}" создана! Ты админ.`);
+    }
+
+    function requestAddToGroup(gId) {
+        const fName = prompt("Введи ник для приглашения в группу:");
+        if (!fName) return;
+        db.ref(`groups/${gId}/requests/${fName}`).set(myNick);
+        alert(`Заявка для ${fName} отправлена админу группы на подтверждение!`);
+    }
+
+    function acceptGroupReq(gId, targetNick) {
+        db.ref(`groups/${gId}`).once('value', s => {
+            const gName = s.val() ? s.val().name : "Группа";
+            db.ref(`groups/${gId}/members/${targetNick}`).set(true);
+            db.ref(`user_groups/${targetNick}/${gId}`).set(gName);
+            db.ref(`groups/${gId}/requests/${targetNick}`).remove();
+            alert(`${targetNick} принят в группу!`);
+        });
+    }
+
+    function rejectGroupReq(gId, targetNick) {
+        db.ref(`groups/${gId}/requests/${targetNick}`).remove();
+    }
+
+    function kickGroupMember(gId, targetNick) {
+        if (confirm(`Кикнуть ${targetNick} из группы?`)) {
+            db.ref(`groups/${gId}/members/${targetNick}`).remove();
+            db.ref(`user_groups/${targetNick}/${gId}`).remove();
+            alert(`${targetNick} был исключен!`);
+            closeMembersModal();
+        }
+    }
+
+    function makeGroupAdmin(gId, targetNick) {
+        if (confirm(`Сделать ${targetNick} новым админом группы?`)) {
+            db.ref(`groups/${gId}/admin`).set(targetNick);
+            alert(`${targetNick} теперь админ!`);
+            closeMembersModal();
+        }
+    }
+
+    function leaveGroup(gId) {
+        if (confirm("Выйти из группы?")) {
+            db.ref(`groups/${gId}/members/${myNick}`).remove();
+            db.ref(`user_groups/${myNick}/${gId}`).remove();
+            alert("Ты вышел из группы!");
+        }
+    }
+
+    function toggleGroupTracks(gId) {
+        db.ref(`groups/${gId}/members`).once('value', s => {
+            const members = s.val() || {};
+            for (let mNick in members) {
+                if (mNick !== myNick) {
+                    toggleFriendTrack(mNick);
                 }
             }
         });
+    }
+
+    function viewGroupMembers(gId, gName) {
+        db.ref(`groups/${gId}`).on('value', s => {
+            const gData = s.val();
+            if (!gData) return;
+
+            document.getElementById('membersTitle').innerText = "Участники: " + gName;
+            const container = document.getElementById('membersList');
+            container.innerHTML = '';
+
+            const members = gData.members || {};
+            const admin = gData.admin;
+            const amIAdmin = admin === myNick;
+
+            for (let mNick in members) {
+                const isAdmin = mNick === admin;
+                const role = isAdmin ? '<span style="color:#ff9800; font-weight:bold;">Админ</span>' : '<span style="color:#aaa;">Участник</span>';
+                
+                let adminActionBtns = '';
+                if (amIAdmin && !isAdmin) {
+                    adminActionBtns = `
+                        <div class="member-actions">
+                            <button class="mini-btn" style="background:#f44336" onclick="kickGroupMember('${gId}', '${mNick}')">❌ Кик</button>
+                            <button class="mini-btn" style="background:#ff9800" onclick="makeGroupAdmin('${gId}', '${mNick}')">👑 Сделать админом</button>
+                        </div>`;
+                }
+
+                container.innerHTML += `
+                    <div class="member-item">
+                        <div class="member-info">
+                            <b>${mNick}</b>
+                            ${role}
+                        </div>
+                        ${adminActionBtns}
+                    </div>`;
+            }
+
+            document.getElementById('membersBox').style.display = 'block';
+        });
+    }
+
+    function closeMembersModal() {
+        document.getElementById('membersBox').style.display = 'none';
+    }
+
+    function listenGroups() {
+        db.ref(`user_groups/${myNick}`).on('value', s => {
+            const groups = s.val() || {};
+            const gDiv = document.getElementById('groupsListDisplay');
+            const reqDiv = document.getElementById('groupRequests');
+            gDiv.innerHTML = "<h4>Группы:</h4>";
+            reqDiv.innerHTML = "";
+            
+            for (let gId in groups) {
+                db.ref(`groups/${gId}`).on('value', gSnap => {
+                    const gData = gSnap.val();
+                    if (!gData) return;
+                    
+                    const isAdmin = gData.admin === myNick;
+
+                    if (isAdmin && gData.requests) {
+                        for (let reqNick in gData.requests) {
+                            const invitedBy = gData.requests[reqNick];
+                            reqDiv.innerHTML += `
+                                <div class="req">
+                                    Заявка в <b>${gData.name}</b>:<br>${reqNick} (от ${invitedBy})<br>
+                                    <button class="mini-btn" style="background:#4caf50" onclick="acceptGroupReq('${gId}', '${reqNick}')">✅ Принять</button>
+                                    <button class="mini-btn" style="background:red" onclick="rejectGroupReq('${gId}', '${reqNick}')">❌ Отклонить</button>
+                                </div>`;
+                        }
+                    }
+
+                    gDiv.innerHTML += `
+                        <div class="g-item">
+                            <b>👥 ${gData.name}</b> ${isAdmin ? '<span style="color:orange">(Админ)</span>' : ''}<br>
+                            <button class="chat-btn" onclick="openChat('${gId}', 'group', '${gData.name}')">💬 Чат</button>
+                            <button class="members-btn" onclick="viewGroupMembers('${gId}', '${gData.name}')">👥 Участники</button>
+                            <button class="track-btn" onclick="toggleGroupTracks('${gId}')">🗺️ Маршруты</button>
+                            <button class="track-btn" style="background:#9c27b0" onclick="requestAddToGroup('${gId}')">➕ Добавить</button>
+                            <button class="del-btn" onclick="leaveGroup('${gId}')">🚪 Выйти</button>
+                        </div>`;
+                });
+            }
+        });
+    }
+
+    function listenUnreadMessages(fName) {
+        const chatId = getChatId(fName);
+        db.ref(`chats/${chatId}`).limitToLast(1).on('child_added', s => {
+            const msg = s.val();
+            if (msg && msg.from === fName && activeChatId !== chatId) {
+                unreadMap[fName] = true;
+                const card = document.getElementById(`friend-card-${fName}`);
+                if (card && !card.querySelector('.unread-badge')) {
+                    card.querySelector('b').insertAdjacentHTML('afterend', ' <span class="unread-badge">🔴 (Новое!)</span>');
+                }
+            }
+        });
+    }
+
+    function getChatId(fNick) {
+        return myNick < fNick ? `${myNick}_${fNick}` : `${fNick}_${myNick}`;
+    }
+
+    function handleTyping() {
+        if (!activeChatId) return;
+        db.ref(`typing/${activeChatId}/${myNick}`).set(Date.now());
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+            db.ref(`typing/${activeChatId}/${myNick}`).remove();
+        }, 2500);
+    }
+
+    function openChat(targetId, type, titleName = "") {
+        if (activeChatId) closeChat();
+
+        activeChatType = type;
+        if (type === 'user') {
+            activeChatId = getChatId(targetId);
+            document.getElementById('chatTitle').innerText = "Чат с " + targetId;
+            unreadMap[targetId] = false;
+            const card = document.getElementById(`friend-card-${targetId}`);
+            if (card) {
+                const badge = card.querySelector('.unread-badge');
+                if (badge) badge.remove();
+            }
+        } else {
+            activeChatId = targetId;
+            document.getElementById('chatTitle').innerText = "Группа: " + titleName;
+        }
+
+        document.getElementById('chatBox').style.display = 'flex';
+        
+        db.ref(`typing/${activeChatId}`).on('value', s => {
+            const typers = s.val() || {};
+            const now = Date.now();
+            const names = Object.keys(typers).filter(n => n !== myNick && (now - typers[n] < 3000));
+            
+            const statusDiv = document.getElementById('typingStatus');
+            if (names.length > 0) {
+                statusDiv.innerText = `${names.join(', ')} печатает...`;
+            } else {
+                statusDiv.innerText = '';
+            }
+        });
+
+        db.ref(`chats/${activeChatId}`).on('value', s => {
+            const msgs = s.val() || {};
+            const container = document.getElementById('chatMessages');
+            container.innerHTML = '';
+            
+            for (let id in msgs) {
+                const m = msgs[id];
+                const isMy = m.from === myNick;
+                
+                if (!isMy && (!m.readBy || !m.readBy[myNick])) {
+                    db.ref(`chats/${activeChatId}/${id}/readBy/${myNick}`).set(true);
+                }
+
+                let ticks = '';
+                if (isMy) {
+                    const isRead = m.readBy && Object.keys(m.readBy).length > 0;
+                    ticks = isRead ? '<span class="ticks">✓✓</span>' : '<span class="ticks">✓</span>';
+                }
+
+                const senderLabel = type === 'group' && !isMy ? `<b>${m.from}:</b> ` : '';
+                container.innerHTML += `<div class="msg ${isMy ? 'my' : ''}">${senderLabel}${m.text} ${ticks}</div>`;
+            }
+            container.scrollTop = container.scrollHeight;
+        });
+    }
+
+    function closeChat() {
+        document.getElementById('chatBox').style.display = 'none';
+        if (activeChatId) {
+            db.ref(`chats/${activeChatId}`).off();
+            db.ref(`typing/${activeChatId}/${myNick}`).remove();
+            db.ref(`typing/${activeChatId}`).off();
+            activeChatId = null;
+        }
+    }
+
+    function sendMsg() {
+        const input = document.getElementById('chatInput');
+        const text = input.value.trim();
+        if (!text || !activeChatId) return;
+        
+        db.ref(`typing/${activeChatId}/${myNick}`).remove();
+        db.ref(`chats/${activeChatId}`).push({
+            from: myNick,
+            text: text,
+            time: Date.now()
+        });
+        input.value = '';
     }
 </script>
 </body>
