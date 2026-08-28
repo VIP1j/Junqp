@@ -25,7 +25,7 @@
         /* Нижняя панель */
         .bottom-nav { 
             position: fixed; bottom: 0; left: 0; right: 0; height: 55px; background: #222; 
-            border-top: 1px solid #333; z-index: 1002; display: flex; justify-around: space-around; align-items: center; 
+            border-top: 1px solid #333; z-index: 1002; display: flex; justify-content: space-around; align-items: center; 
         }
         .nav-item { background: none; border: none; color: #888; font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; width: 50%; padding: 5px 0; }
         .nav-item.active { color: #4caf50; font-weight: bold; }
@@ -62,6 +62,17 @@
         .unread-badge { color: #ff5252; font-weight: bold; }
         #typingStatus { font-size: 10px; color: #ffeb3b; font-style: italic; min-height: 14px; }
         
+        /* Стили для уровней стрейков */
+        .streak-badge { font-weight: bold; padding: 2px 6px; border-radius: 8px; display: inline-block; }
+        .streak-frozen { color: #00e5ff; } /* Сине-бирюзовый при заморозке */
+        .streak-yellow { color: #ffd700; }
+        .streak-red { color: #ff4d4d; }
+        .streak-orange { color: #ff8c00; }
+        .streak-pink { color: #ff69b4; }
+        .streak-purple-teal { background: linear-gradient(45deg, #9c27b0, #00ebd6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .streak-teal { color: #00ebd6; }
+        .streak-green-teal { background: linear-gradient(45deg, #00ebd6, #4caf50); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+
         @media (max-width: 600px) {
             .ui-panel { width: calc(100% - 20px); left: 10px; max-height: calc(100vh - 120px); }
             .chat-panel { width: calc(100% - 20px); right: 10px; bottom: 65px; height: 55vh; }
@@ -83,7 +94,10 @@
     <div class="panel-header" onclick="toggleMainPanel()">
         <div>
             <div id="myNickDisplay" style="font-weight: bold; color: orange; font-size: 14px;"></div>
-            <div id="distanceDisplay" style="font-size: 11px; color: #4caf50;">Пройдено: 0 км</div>
+            <div style="display:flex; gap: 8px; align-items: center; margin-top: 2px;">
+                <div id="distanceDisplay" style="font-size: 11px; color: #4caf50;">Пройдено: 0 км</div>
+                <div id="myStreakDisplay" style="font-size: 11px;"></div>
+            </div>
         </div>
         <button class="toggle-btn" id="panelToggleBtn">▼</button>
     </div>
@@ -184,6 +198,66 @@
 
     if (myNick && myPass) startApp();
 
+    function getStreakBadge(days, isFrozen = false) {
+        days = days || 0;
+        if (days === 0) return '';
+        
+        if (isFrozen) {
+            return `<span class="streak-badge streak-frozen">🥶 ${days}</span>`;
+        }
+
+        let colorClass = '';
+        if (days >= 1 && days <= 3) colorClass = 'streak-yellow';
+        else if (days >= 4 && days <= 16) colorClass = 'streak-red';
+        else if (days >= 17 && days <= 53) colorClass = 'streak-orange';
+        else if (days >= 54 && days <= 133) colorClass = 'streak-pink';
+        else if (days >= 134 && days <= 235) colorClass = 'streak-purple-teal';
+        else if (days >= 236 && days <= 512) colorClass = 'streak-teal';
+        else if (days >= 513) colorClass = 'streak-green-teal';
+
+        return `<span class="streak-badge ${colorClass}">🔥 ${days}</span>`;
+    }
+
+    function checkAndUpdateStreak() {
+        const todayStr = new Date().toISOString().split('T')[0];
+        
+        db.ref(`users/${myNick}/streakData`).once('value', s => {
+            const data = s.val() || { count: 0, lastDate: "", isFrozen: false };
+            let count = data.count || 0;
+            const lastDateStr = data.lastDate || "";
+
+            if (lastDateStr === todayStr) {
+                // Повторный вход в один и тот же день
+            } else {
+                const today = new Date(todayStr);
+                const last = lastDateStr ? new Date(lastDateStr) : null;
+                
+                if (last) {
+                    const diffTime = Math.abs(today - last);
+                    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    if (diffDays === 1) {
+                        count += 1;
+                    } else if (diffDays === 2) {
+                        count += 1; 
+                    } else if (diffDays > 2) {
+                        count = 1;
+                    }
+                } else {
+                    count = 1;
+                }
+
+                db.ref(`users/${myNick}/streakData`).set({
+                    count: count,
+                    lastDate: todayStr,
+                    isFrozen: false
+                });
+            }
+
+            document.getElementById('myStreakDisplay').innerHTML = getStreakBadge(count, false);
+        });
+    }
+
     function toggleMainPanel() {
         const panel = document.getElementById('ui');
         const btn = document.getElementById('panelToggleBtn');
@@ -279,8 +353,8 @@
         document.getElementById('myNickDisplay').innerText = "Ты: " + myNick;
         map.invalidateSize();
         
-        updateLocation();
-        setInterval(updateLocation, 33000); 
+        checkAndUpdateStreak();
+        startTracking();
         listenRequests();
         listenFriends();
         listenGroups();
@@ -303,19 +377,32 @@
             if (!listDiv) return;
             listDiv.innerHTML = '';
 
+            const todayStr = new Date().toISOString().split('T')[0];
+
             for (let uName in users) {
                 if (uName === myNick) continue;
                 const uData = users[uName];
                 const color = uData.color || '#00ff00';
-                const pos = uData.pos ? `${uData.pos.lat.toFixed(4)}, ${uData.pos.lon.toFixed(4)}` : 'Нет гео';
                 const historyObj = uData.history || {};
                 const uPath = Object.keys(historyObj).sort().map(k => [historyObj[k].lat, historyObj[k].lon]);
                 const dist = calculateTotalDistance(uPath);
+                
+                const sData = uData.streakData || { count: 0, lastDate: "" };
+                let uStreak = sData.count || 0;
+                let isFrozen = false;
+
+                if (sData.lastDate && sData.lastDate !== todayStr) {
+                    const diffDays = Math.round(Math.abs(new Date(todayStr) - new Date(sData.lastDate)) / (1000 * 60 * 60 * 24));
+                    if (diffDays === 1) isFrozen = true;
+                    else if (diffDays > 1) uStreak = 0;
+                }
 
                 listDiv.innerHTML += `
                     <div class="admin-item">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <b style="color:${color}">${uName}</b>
+                            <div>
+                                <b style="color:${color}">${uName}</b> ${getStreakBadge(uStreak, isFrozen)}
+                            </div>
                             <span style="font-size:10px; color:#4caf50;">🛣️ ${dist} км</span>
                         </div>
                         <div class="btn-row">
@@ -325,11 +412,13 @@
                     </div>`;
 
                 if (uData.pos) {
+                    const friendBadgeHTML = getStreakBadge(uStreak, isFrozen);
                     if (markers[uName]) {
-                        markers[uName].setLatLng([uData.pos.lat, uData.pos.lon]).setStyle({ fillColor: color });
+                        markers[uName].setLatLng([uData.pos.lat, uData.pos.lon]).setStyle({ fillColor: color })
+                            .bindPopup(`<b>${uName}</b> ${friendBadgeHTML}<br>(${dist} км)`);
                     } else {
                         markers[uName] = L.circleMarker([uData.pos.lat, uData.pos.lon], { radius: 8, fillColor: color, color: "white", weight: 2, fillOpacity: 0.9 })
-                            .addTo(map).bindPopup(`<b>${uName}</b> (${dist} км)`);
+                            .addTo(map).bindPopup(`<b>${uName}</b> ${friendBadgeHTML}<br>(${dist} км)`);
                     }
                 }
             }
@@ -368,12 +457,15 @@
         return total.toFixed(2);
     }
 
-    function updateLocation() {
-        navigator.geolocation.getCurrentPosition(p => {
-            const { latitude: lat, longitude: lon } = p.coords;
+    function startTracking() {
+        if (!navigator.geolocation) return alert("GPS не поддерживается браузером!");
+
+        navigator.geolocation.watchPosition(p => {
+            const { latitude: lat, longitude: lon, accuracy } = p.coords;
             const now = Date.now();
 
-            if (lastLat !== null && getDistanceInKm(lastLat, lastLon, lat, lon) < 0.01) return;
+            if (accuracy > 50) return;
+            if (lastLat !== null && getDistanceInKm(lastLat, lastLon, lat, lon) < 0.005) return;
             
             lastLat = lat;
             lastLon = lon;
@@ -395,15 +487,22 @@
                     myPolyline = L.polyline(pathArray, {color: color, weight: 4, opacity: 0.8}).addTo(map);
                 }
 
+                const myStreakBadge = document.getElementById('myStreakDisplay').innerHTML;
+
                 if (myMarker) {
-                    myMarker.setLatLng([lat, lon]).setStyle({fillColor: color});
+                    myMarker.setLatLng([lat, lon]).setStyle({fillColor: color})
+                        .bindPopup(`<b>Ты (${myNick})</b> ${myStreakBadge}`);
                 } else {
                     myMarker = L.circleMarker([lat, lon], { radius: 10, fillColor: color, color: "white", weight: 2, fillOpacity: 1 })
-                        .addTo(map).bindPopup(`<b>Ты (${myNick})</b>`);
-                    map.setView([lat, lon], 14);
+                        .addTo(map).bindPopup(`<b>Ты (${myNick})</b> ${myStreakBadge}`);
+                    map.setView([lat, lon], 15);
                 }
             });
-        }, null, {enableHighAccuracy: true});
+        }, err => console.log(err), {
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 10000
+        });
     }
 
     function handleSearch() {
@@ -609,19 +708,32 @@
             const members = gData.members || {};
             const isAdmin = gData.admin === myNick;
 
+            const todayStr = new Date().toISOString().split('T')[0];
+
             for (let mNick in members) {
                 const role = mNick === gData.admin ? ' 👑 (Админ)' : '';
                 const removeBtn = (isAdmin && mNick !== myNick) ? `<button class="mini-btn del-btn" onclick="removeMemberFromGroup('${gId}', '${mNick}')">❌ Исключить</button>` : '';
 
-                db.ref(`users/${mNick}/history`).once('value', hSnap => {
-                    const historyObj = hSnap.val() || {};
+                db.ref(`users/${mNick}`).once('value', uSnap => {
+                    const uData = uSnap.val() || {};
+                    const historyObj = uData.history || {};
                     const mPath = Object.keys(historyObj).sort().map(k => [historyObj[k].lat, historyObj[k].lon]);
                     const dist = calculateTotalDistance(mPath);
+                    
+                    const sData = uData.streakData || { count: 0, lastDate: "" };
+                    let mStreak = sData.count || 0;
+                    let isFrozen = false;
+
+                    if (sData.lastDate && sData.lastDate !== todayStr) {
+                        const diffDays = Math.round(Math.abs(new Date(todayStr) - new Date(sData.lastDate)) / (1000 * 60 * 60 * 24));
+                        if (diffDays === 1) isFrozen = true;
+                        else if (diffDays > 1) mStreak = 0;
+                    }
 
                     container.innerHTML += `
                         <div style="padding:6px 0; border-bottom:1px solid #444; font-size:12px; display:flex; justify-content:space-between; align-items:center;">
                             <div>
-                                <b>${mNick}</b><span style="color:orange;">${role}</span>
+                                <b>${mNick}</b> ${getStreakBadge(mStreak, isFrozen)} <span style="color:orange;">${role}</span>
                                 <div style="font-size:10px; color:#4caf50;">🛣️ ${dist} км</div>
                             </div>
                             <div class="btn-row">
@@ -642,6 +754,9 @@
             const friends = s.val() || {};
             const listDiv = document.getElementById('friendsListDisplay');
             listDiv.innerHTML = "<h4 style='margin:10px 0 4px 0; font-size:12px;'>Друзья:</h4>";
+            
+            const todayStr = new Date().toISOString().split('T')[0];
+
             for (let fName in friends) {
                 const isUnread = unreadMap[fName] ? '<span class="unread-badge">🔴</span>' : '';
 
@@ -653,11 +768,25 @@
                     const historyObj = u.history || {};
                     const fPath = Object.keys(historyObj).sort().map(k => [historyObj[k].lat, historyObj[k].lon]);
                     const friendDist = calculateTotalDistance(fPath);
+                    
+                    const sData = u.streakData || { count: 0, lastDate: "" };
+                    let friendStreak = sData.count || 0;
+                    let isFrozen = false;
+
+                    if (sData.lastDate && sData.lastDate !== todayStr) {
+                        const diffDays = Math.round(Math.abs(new Date(todayStr) - new Date(sData.lastDate)) / (1000 * 60 * 60 * 24));
+                        if (diffDays === 1) isFrozen = true;
+                        else if (diffDays > 1) friendStreak = 0;
+                    }
+
+                    const friendBadgeHTML = getStreakBadge(friendStreak, isFrozen);
 
                     const friendCard = document.getElementById(`friend-card-${fName}`);
                     const friendContent = `
                         <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <b>${fName}</b> ${isUnread}
+                            <div>
+                                <b>${fName}</b> ${friendBadgeHTML} ${isUnread}
+                            </div>
                             <span style="font-size:11px; color:#4caf50; font-weight:bold;">🛣️ ${friendDist} км</span>
                         </div>
                         <div class="btn-row">
@@ -676,10 +805,11 @@
 
                     if (u.pos) {
                         if (markers[fName]) {
-                            markers[fName].setLatLng([u.pos.lat, u.pos.lon]).setStyle({ fillColor: color });
+                            markers[fName].setLatLng([u.pos.lat, u.pos.lon]).setStyle({ fillColor: color })
+                                .bindPopup(`<b>${fName}</b> ${friendBadgeHTML}<br>(${friendDist} км)`);
                         } else {
                             markers[fName] = L.circleMarker([u.pos.lat, u.pos.lon], { radius: 8, fillColor: color, color: "white", weight: 2, fillOpacity: 0.9 })
-                                .addTo(map).bindPopup(`<b>${fName}</b> (${friendDist} км)`);
+                                .addTo(map).bindPopup(`<b>${fName}</b> ${friendBadgeHTML}<br>(${friendDist} км)`);
                         }
                     }
                 });
