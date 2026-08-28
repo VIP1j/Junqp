@@ -22,10 +22,10 @@
         .panel-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .toggle-btn { background: #444; border: none; color: white; border-radius: 50%; width: 26px; height: 26px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 
-        /* Нижняя мобильная панель навигации */
+        /* Нижняя панель */
         .bottom-nav { 
             position: fixed; bottom: 0; left: 0; right: 0; height: 55px; background: #222; 
-            border-top: 1px solid #333; z-index: 1002; display: flex; justify-content: space-around; align-items: center; 
+            border-top: 1px solid #333; z-index: 1002; display: flex; justify-around: space-around; align-items: center; 
         }
         .nav-item { background: none; border: none; color: #888; font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; width: 50%; padding: 5px 0; }
         .nav-item.active { color: #4caf50; font-weight: bold; }
@@ -62,7 +62,6 @@
         .unread-badge { color: #ff5252; font-weight: bold; }
         #typingStatus { font-size: 10px; color: #ffeb3b; font-style: italic; min-height: 14px; }
         
-        /* Мобильная адаптация */
         @media (max-width: 600px) {
             .ui-panel { width: calc(100% - 20px); left: 10px; max-height: calc(100vh - 120px); }
             .chat-panel { width: calc(100% - 20px); right: 10px; bottom: 65px; height: 55vh; }
@@ -104,7 +103,6 @@
     </div>
 </div>
 
-<!-- Модалка списка диалогов -->
 <div id="chatsListModal" class="modal-panel">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
         <b style="font-size: 14px;">💬 Ваши сообщения</b>
@@ -113,7 +111,6 @@
     <div id="chatsListContainer"></div>
 </div>
 
-<!-- Окно открытого чата -->
 <div id="chatBox" class="chat-panel" style="display:none;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px;">
         <div style="display:flex; align-items:center; gap: 6px;">
@@ -128,7 +125,6 @@
     <button onclick="sendMsg()">Отправить</button>
 </div>
 
-<!-- Участники Группы -->
 <div id="membersBox" class="modal-panel">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
         <b id="membersTitle" style="font-size: 13px;">Участники</b>
@@ -139,7 +135,6 @@
 
 <div id="map"></div>
 
-<!-- Нижняя навигация -->
 <div class="bottom-nav" id="bottomNav" style="display:none;">
     <button class="nav-item active" id="navMap" onclick="switchTab('map')">
         <span>🗺️</span> Карта
@@ -313,12 +308,15 @@
                 const uData = users[uName];
                 const color = uData.color || '#00ff00';
                 const pos = uData.pos ? `${uData.pos.lat.toFixed(4)}, ${uData.pos.lon.toFixed(4)}` : 'Нет гео';
+                const historyObj = uData.history || {};
+                const uPath = Object.keys(historyObj).sort().map(k => [historyObj[k].lat, historyObj[k].lon]);
+                const dist = calculateTotalDistance(uPath);
 
                 listDiv.innerHTML += `
                     <div class="admin-item">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                             <b style="color:${color}">${uName}</b>
-                            <span style="font-size:9px; color:#bbb;">${pos}</span>
+                            <span style="font-size:10px; color:#4caf50;">🛣️ ${dist} км</span>
                         </div>
                         <div class="btn-row">
                             <button class="mini-btn chat-btn" onclick="focusUser('${uName}')">📍 Найти</button>
@@ -331,7 +329,7 @@
                         markers[uName].setLatLng([uData.pos.lat, uData.pos.lon]).setStyle({ fillColor: color });
                     } else {
                         markers[uName] = L.circleMarker([uData.pos.lat, uData.pos.lon], { radius: 8, fillColor: color, color: "white", weight: 2, fillOpacity: 0.9 })
-                            .addTo(map).bindPopup(`<b>${uName}</b> (Админ)`);
+                            .addTo(map).bindPopup(`<b>${uName}</b> (${dist} км)`);
                     }
                 }
             }
@@ -462,17 +460,14 @@
             for (let from in reqs) {
                 const reqData = reqs[from];
                 
-                // Дружба
                 if (reqData === 'pending') {
                     div.innerHTML += `<div class="req">Запрос в друзья: <b>${from}</b> 
                         <div class="btn-row"><button class="mini-btn" onclick="accept('${from}')">✅ Да</button> <button class="mini-btn del-btn" onclick="reject('${from}')">❌ Нет</button></div></div>`;
                 } 
-                // Приглашение в группу от друга
                 else if (typeof reqData === 'object' && reqData.type === 'group_invite') {
                     div.innerHTML += `<div class="req">Приглашение в группу <b>"${reqData.gName}"</b> от ${from}
                         <div class="btn-row"><button class="mini-btn" onclick="acceptGroupInvite('${from}', '${reqData.gId}', '${reqData.gName}')">✅ Вступить</button> <button class="mini-btn del-btn" onclick="rejectGroupReq('${from}')">❌ Отклонить</button></div></div>`;
                 }
-                // Админка: Подтверждение входа от пользователя
                 else if (typeof reqData === 'object' && reqData.type === 'group_admin_approval') {
                     div.innerHTML += `<div class="req">Разрешить <b>${reqData.user}</b> войти в группу <b>"${reqData.gName}"</b>?
                         <div class="btn-row"><button class="mini-btn" onclick="approveGroupMember('${from}', '${reqData.gId}', '${reqData.user}', '${reqData.gName}')">✅ Разрешить</button> <button class="mini-btn del-btn" onclick="rejectGroupReq('${from}')">❌ Отказать</button></div></div>`;
@@ -490,7 +485,6 @@
     function reject(from) { db.ref(`requests/${myNick}/${from}`).remove(); }
     function rejectGroupReq(key) { db.ref(`requests/${myNick}/${key}`).remove(); }
 
-    /* ГРУППЫ И ПРИГЛАШЕНИЯ С ПОДТВЕРЖДЕНИЕМ */
     function createGroup() {
         const gName = prompt("Название группы:");
         if (!gName) return;
@@ -503,7 +497,6 @@
         db.ref(`user_groups/${myNick}/${gId}`).set(gName);
     }
 
-    // Шаг 1: Отправка приглашения другу
     function addMemberToGroup(gId, gName) {
         const targetNick = prompt(`Введите ник друга для приглашения в "${gName}":`);
         if (!targetNick) return;
@@ -521,7 +514,6 @@
         });
     }
 
-    // Шаг 2: Друг принял -> Отправляем запрос Админу на одобрение
     function acceptGroupInvite(reqKey, gId, gName) {
         db.ref(`requests/${myNick}/${reqKey}`).remove();
         db.ref(`groups/${gId}/admin`).once('value', s => {
@@ -529,7 +521,6 @@
             if (!admin) return alert("Группа больше не существует.");
 
             if (admin === myNick) {
-                // Если создатель сам себя принял
                 db.ref(`groups/${gId}/members/${myNick}`).set(true);
                 db.ref(`user_groups/${myNick}/${gId}`).set(gName);
             } else {
@@ -544,7 +535,6 @@
         });
     }
 
-    // Шаг 3: Админ одобряет
     function approveGroupMember(reqKey, gId, userNick, gName) {
         db.ref(`requests/${myNick}/${reqKey}`).remove();
         db.ref(`groups/${gId}/members/${userNick}`).set(true);
@@ -552,7 +542,6 @@
         alert(`Игрок ${userNick} официально принят в группу!`);
     }
 
-    // Админ удаляет участника из группы
     function removeMemberFromGroup(gId, userNick) {
         if (!confirm(`Исключить ${userNick} из группы?`)) return;
         db.ref(`groups/${gId}/members/${userNick}`).remove();
@@ -570,7 +559,6 @@
             db.ref(`groups/${gId}/members/${myNick}`).remove();
             db.ref(`user_groups/${myNick}/${gId}`).remove();
 
-            // Передача прав админа, если админ выбыл
             if (gData.admin === myNick) {
                 const members = Object.keys(gData.members || {}).filter(m => m !== myNick);
                 if (members.length > 0) {
@@ -625,14 +613,23 @@
                 const role = mNick === gData.admin ? ' 👑 (Админ)' : '';
                 const removeBtn = (isAdmin && mNick !== myNick) ? `<button class="mini-btn del-btn" onclick="removeMemberFromGroup('${gId}', '${mNick}')">❌ Исключить</button>` : '';
 
-                container.innerHTML += `
-                    <div style="padding:6px 0; border-bottom:1px solid #444; font-size:12px; display:flex; justify-content:space-between; align-items:center;">
-                        <div><b>${mNick}</b><span style="color:orange;">${role}</span></div>
-                        <div class="btn-row">
-                            <button class="mini-btn track-btn" onclick="toggleFriendTrack('${mNick}')">🗺️ Трек</button>
-                            ${removeBtn}
-                        </div>
-                    </div>`;
+                db.ref(`users/${mNick}/history`).once('value', hSnap => {
+                    const historyObj = hSnap.val() || {};
+                    const mPath = Object.keys(historyObj).sort().map(k => [historyObj[k].lat, historyObj[k].lon]);
+                    const dist = calculateTotalDistance(mPath);
+
+                    container.innerHTML += `
+                        <div style="padding:6px 0; border-bottom:1px solid #444; font-size:12px; display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <b>${mNick}</b><span style="color:orange;">${role}</span>
+                                <div style="font-size:10px; color:#4caf50;">🛣️ ${dist} км</div>
+                            </div>
+                            <div class="btn-row">
+                                <button class="mini-btn track-btn" onclick="toggleFriendTrack('${mNick}')">🗺️ Трек</button>
+                                ${removeBtn}
+                            </div>
+                        </div>`;
+                });
             }
             document.getElementById('membersBox').style.display = 'block';
         });
@@ -647,35 +644,47 @@
             listDiv.innerHTML = "<h4 style='margin:10px 0 4px 0; font-size:12px;'>Друзья:</h4>";
             for (let fName in friends) {
                 const isUnread = unreadMap[fName] ? '<span class="unread-badge">🔴</span>' : '';
-                
-                listDiv.innerHTML += `
-                    <div class="f-item" id="friend-card-${fName}">
-                        <div style="display:flex; justify-content:space-between;">
+
+                db.ref(`users/${fName}`).on('value', userSnap => {
+                    const u = userSnap.val();
+                    if (!u) return;
+
+                    const color = u.color || "#00ff00";
+                    const historyObj = u.history || {};
+                    const fPath = Object.keys(historyObj).sort().map(k => [historyObj[k].lat, historyObj[k].lon]);
+                    const friendDist = calculateTotalDistance(fPath);
+
+                    const friendCard = document.getElementById(`friend-card-${fName}`);
+                    const friendContent = `
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
                             <b>${fName}</b> ${isUnread}
+                            <span style="font-size:11px; color:#4caf50; font-weight:bold;">🛣️ ${friendDist} км</span>
                         </div>
                         <div class="btn-row">
                             <button class="chat-btn mini-btn" onclick="openChat('${fName}', 'user')">💬 Чат</button>
                             <button class="track-btn mini-btn" onclick="toggleFriendTrack('${fName}')">🗺️ Трек</button>
                             <button class="del-btn mini-btn" onclick="deleteFriend('${fName}')">✕</button>
-                        </div>
-                    </div>`;
+                        </div>`;
 
-                listenUnreadMessages(fName);
-
-                db.ref(`users/${fName}`).on('value', userSnap => {
-                    const u = userSnap.val();
-                    if (!u || !u.pos) return;
-                    const color = u.color || "#00ff00";
+                    if (friendCard) {
+                        friendCard.innerHTML = friendContent;
+                    } else {
+                        listDiv.innerHTML += `<div class="f-item" id="friend-card-${fName}">${friendContent}</div>`;
+                    }
 
                     if (visibleTracks[fName]) drawFriendTrack(fName, u);
 
-                    if (markers[fName]) {
-                        markers[fName].setLatLng([u.pos.lat, u.pos.lon]).setStyle({ fillColor: color });
-                    } else {
-                        markers[fName] = L.circleMarker([u.pos.lat, u.pos.lon], { radius: 8, fillColor: color, color: "white", weight: 2, fillOpacity: 0.9 })
-                            .addTo(map).bindPopup(`<b>${fName}</b>`);
+                    if (u.pos) {
+                        if (markers[fName]) {
+                            markers[fName].setLatLng([u.pos.lat, u.pos.lon]).setStyle({ fillColor: color });
+                        } else {
+                            markers[fName] = L.circleMarker([u.pos.lat, u.pos.lon], { radius: 8, fillColor: color, color: "white", weight: 2, fillOpacity: 0.9 })
+                                .addTo(map).bindPopup(`<b>${fName}</b> (${friendDist} км)`);
+                        }
                     }
                 });
+
+                listenUnreadMessages(fName);
             }
         });
     }
@@ -694,67 +703,72 @@
 
     function handleTyping() {
         if (!activeChatId) return;
-        db.ref(`typing/${activeChatId}/${myNick}`).set(Date.now());
+        db.ref(`typing/${activeChatId}/${myNick}`).set(true);
         clearTimeout(typingTimeout);
-        typingTimeout = setTimeout(() => { db.ref(`typing/${activeChatId}/${myNick}`).remove(); }, 2500);
+        typingTimeout = setTimeout(() => {
+            db.ref(`typing/${activeChatId}/${myNick}`).remove();
+        }, 3000);
     }
 
-    function openChat(targetId, type, titleName = "") {
-        if (activeChatId) closeChat();
-        closeChatsListModal();
+    function openChat(id, type, name = "") {
         activeChatType = type;
+        activeChatId = type === 'user' ? getChatId(id) : id;
         
+        document.getElementById('chatTitle').innerText = type === 'user' ? id : name;
+        document.getElementById('chatBox').style.display = 'flex';
+        closeChatsListModal();
+
         if (type === 'user') {
-            activeChatId = getChatId(targetId);
-            document.getElementById('chatTitle').innerText = "💬 " + targetId;
-            unreadMap[targetId] = false;
-        } else {
-            activeChatId = targetId;
-            document.getElementById('chatTitle').innerText = "👥 " + titleName;
+            delete unreadMap[id];
+            listenFriends();
         }
 
-        document.getElementById('chatBox').style.display = 'flex';
+        const msgDiv = document.getElementById('chatMessages');
+        db.ref(`chats/${activeChatId}`).off();
+        db.ref(`chats/${activeChatId}`).on('value', s => {
+            msgDiv.innerHTML = '';
+            const msgs = s.val() || {};
+            for (let k in msgs) {
+                const m = msgs[k];
+                const isMy = m.from === myNick ? 'my' : '';
+                const sender = type === 'group' && !isMy ? `<b>${m.from}:</b> ` : '';
+                msgDiv.innerHTML += `<div class="msg ${isMy}">${sender}${m.text}</div>`;
+            }
+            msgDiv.scrollTop = msgDiv.scrollHeight;
+        });
 
         db.ref(`typing/${activeChatId}`).on('value', s => {
             const typers = s.val() || {};
-            const now = Date.now();
-            const names = Object.keys(typers).filter(n => n !== myNick && (now - typers[n] < 3000));
-            document.getElementById('typingStatus').innerText = names.length ? `${names.join(', ')} печатает...` : '';
+            const names = Object.keys(typers).filter(n => n !== myNick);
+            const statusDiv = document.getElementById('typingStatus');
+            statusDiv.innerText = names.length > 0 ? `${names.join(', ')} печатает...` : '';
         });
-
-        db.ref(`chats/${activeChatId}`).on('value', s => {
-            const msgs = s.val() || {};
-            const container = document.getElementById('chatMessages');
-            container.innerHTML = '';
-            
-            for (let id in msgs) {
-                const m = msgs[id];
-                const isMy = m.from === myNick;
-                const senderLabel = type === 'group' && !isMy ? `<div style="font-size:10px; color:#ff9800; margin-bottom:2px;">${m.from}</div>` : '';
-                container.innerHTML += `<div class="msg ${isMy ? 'my' : ''}">${senderLabel}${m.text}</div>`;
-            }
-            container.scrollTop = container.scrollHeight;
-        });
-    }
-
-    function closeChat() {
-        document.getElementById('chatBox').style.display = 'none';
-        if (activeChatId) {
-            db.ref(`chats/${activeChatId}`).off();
-            db.ref(`typing/${activeChatId}/${myNick}`).remove();
-            db.ref(`typing/${activeChatId}`).off();
-            activeChatId = null;
-        }
     }
 
     function sendMsg() {
         const input = document.getElementById('chatInput');
         const text = input.value.trim();
         if (!text || !activeChatId) return;
-        
+
+        db.ref(`chats/${activeChatId}`).push({
+            from: myNick,
+            text: text,
+            time: Date.now()
+        });
+
         db.ref(`typing/${activeChatId}/${myNick}`).remove();
-        db.ref(`chats/${activeChatId}`).push({ from: myNick, text: text, time: Date.now() });
         input.value = '';
+    }
+
+    function closeChat() {
+        if (activeChatId) {
+            db.ref(`chats/${activeChatId}`).off();
+            db.ref(`typing/${activeChatId}`).off();
+            db.ref(`typing/${activeChatId}/${myNick}`).remove();
+        }
+        activeChatId = null;
+        activeChatType = null;
+        document.getElementById('chatBox').style.display = 'none';
     }
 </script>
 </body>
