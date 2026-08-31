@@ -25,7 +25,7 @@
         /* Нижняя панель */
         .bottom-nav { 
             position: fixed; bottom: 0; left: 0; right: 0; height: 55px; background: #222; 
-            border-top: 1px solid #333; z-index: 1002; display: flex; justify-content: space-around; align-items: center; 
+            border-top: 1px solid #333; z-index: 1002; display: flex; justify-around: space-around; align-items: center; 
         }
         .nav-item { background: none; border: none; color: #888; font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; width: 50%; padding: 5px 0; }
         .nav-item.active { color: #4caf50; font-weight: bold; }
@@ -64,7 +64,7 @@
         
         /* Стили для уровней стрейков */
         .streak-badge { font-weight: bold; padding: 2px 6px; border-radius: 8px; display: inline-block; }
-        .streak-frozen { color: #00e5ff; } /* Сине-бирюзовый при заморозке */
+        .streak-frozen, .streak-freeze { color: #00e5ff; } 
         .streak-yellow { color: #ffd700; }
         .streak-red { color: #ff4d4d; }
         .streak-orange { color: #ff8c00; }
@@ -185,8 +185,9 @@
     let myPolyline = null;
     let lastLat = null;
     let lastLon = null;
+    let lastTime = null;
 
-    const map = L.map('map', { zoomControl: false }).setView([0, 0], 2);
+    const map = L.map('map', { zoomControl: false }).setView([48.4647, 35.0462], 13);
     L.control.zoom({ position: 'topright' }).addTo(map);
 
     const darkLayer = L.tileLayer('https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png', { maxZoom: 19 });
@@ -226,9 +227,7 @@
             let count = data.count || 0;
             const lastDateStr = data.lastDate || "";
 
-            if (lastDateStr === todayStr) {
-                // Повторный вход в один и тот же день
-            } else {
+            if (lastDateStr !== todayStr) {
                 const today = new Date(todayStr);
                 const last = lastDateStr ? new Date(lastDateStr) : null;
                 
@@ -236,10 +235,8 @@
                     const diffTime = Math.abs(today - last);
                     const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
                     
-                    if (diffDays === 1) {
+                    if (diffDays === 1 || diffDays === 2) {
                         count += 1;
-                    } else if (diffDays === 2) {
-                        count += 1; 
                     } else if (diffDays > 2) {
                         count = 1;
                     }
@@ -384,7 +381,12 @@
                 const uData = users[uName];
                 const color = uData.color || '#00ff00';
                 const historyObj = uData.history || {};
-                const uPath = Object.keys(historyObj).sort().map(k => [historyObj[k].lat, historyObj[k].lon]);
+                
+                const uPath = Object.keys(historyObj)
+                    .sort()
+                    .map(k => [historyObj[k].lat, historyObj[k].lon])
+                    .filter(pt => Math.abs(pt[0]) > 0.1 && Math.abs(pt[1]) > 0.1);
+
                 const dist = calculateTotalDistance(uPath);
                 
                 const sData = uData.streakData || { count: 0, lastDate: "" };
@@ -411,7 +413,7 @@
                         </div>
                     </div>`;
 
-                if (uData.pos) {
+                if (uData.pos && Math.abs(uData.pos.lat) > 0.1 && Math.abs(uData.pos.lon) > 0.1) {
                     const friendBadgeHTML = getStreakBadge(uStreak, isFrozen);
                     if (markers[uName]) {
                         markers[uName].setLatLng([uData.pos.lat, uData.pos.lon]).setStyle({ fillColor: color })
@@ -428,7 +430,7 @@
     function focusUser(uName) {
         db.ref(`users/${uName}/pos`).once('value', s => {
             const pos = s.val();
-            if (pos && pos.lat && pos.lon) {
+            if (pos && pos.lat && pos.lon && Math.abs(pos.lat) > 0.1) {
                 map.setView([pos.lat, pos.lon], 16);
                 if (markers[uName]) markers[uName].openPopup();
                 switchTab('map');
@@ -450,9 +452,13 @@
 
     function calculateTotalDistance(pathArray) {
         let total = 0;
-        for (let i = 0; i < pathArray.length - 1; i++) {
-            const dist = getDistanceInKm(pathArray[i][0], pathArray[i][1], pathArray[i+1][0], pathArray[i+1][1]);
-            if (dist > 0.015) total += dist;
+        const validPath = pathArray.filter(pt => Math.abs(pt[0]) > 0.1 && Math.abs(pt[1]) > 0.1);
+        
+        for (let i = 0; i < validPath.length - 1; i++) {
+            const dist = getDistanceInKm(validPath[i][0], validPath[i][1], validPath[i+1][0], validPath[i+1][1]);
+            if (dist > 0.015 && dist < 1000) {
+                total += dist;
+            }
         }
         return total.toFixed(2);
     }
@@ -464,11 +470,26 @@
             const { latitude: lat, longitude: lon, accuracy } = p.coords;
             const now = Date.now();
 
-            if (accuracy > 50) return;
-            if (lastLat !== null && getDistanceInKm(lastLat, lastLon, lat, lon) < 0.005) return;
-            
+            // Игнорируем нулевые координаты и плохую точность
+            if ((lat === 0 && lon === 0) || (Math.abs(lat) < 0.001 && Math.abs(lon) < 0.001)) return;
+            if (accuracy > 100) return;
+
+            // Защита от телепортаций / РЭБ
+            if (lastLat !== null && lastLon !== null && lastTime !== null) {
+                const jumpDist = getDistanceInKm(lastLat, lastLon, lat, lon);
+                const timeDiffInHours = (now - lastTime) / 1000 / 3600;
+
+                if (timeDiffInHours > 0) {
+                    const calculatedSpeed = jumpDist / timeDiffInHours;
+                    if (calculatedSpeed > 1000) return; // Игнорируем резкий скачок > 1000 км/ч
+                }
+
+                if (jumpDist < 0.005) return; // Игнорируем стояние на месте
+            }
+
             lastLat = lat;
             lastLon = lon;
+            lastTime = now;
 
             db.ref('users/' + myNick + '/pos').update({ lat, lon, time: now });
             db.ref('users/' + myNick + '/history/' + now).set({ lat, lon });
@@ -478,27 +499,31 @@
                 const color = uData.color || "orange";
                 const historyObj = uData.history || {};
                 
-                const pathArray = Object.keys(historyObj).sort().map(k => [historyObj[k].lat, historyObj[k].lon]);
+                const pathArray = Object.keys(historyObj)
+                    .sort()
+                    .map(k => [historyObj[k].lat, historyObj[k].lon])
+                    .filter(pt => Math.abs(pt[0]) > 0.1 && Math.abs(pt[1]) > 0.1);
+
                 document.getElementById('distanceDisplay').innerText = `Пройдено: ${calculateTotalDistance(pathArray)} км`;
 
                 if (myPolyline) {
-                    myPolyline.setLatLngs(pathArray).setStyle({color: color});
+                    myPolyline.setLatLngs(pathArray).setStyle({ color: color });
                 } else {
-                    myPolyline = L.polyline(pathArray, {color: color, weight: 4, opacity: 0.8}).addTo(map);
+                    myPolyline = L.polyline(pathArray, { color: color, weight: 4, opacity: 0.8 }).addTo(map);
                 }
 
                 const myStreakBadge = document.getElementById('myStreakDisplay').innerHTML;
 
                 if (myMarker) {
-                    myMarker.setLatLng([lat, lon]).setStyle({fillColor: color})
-                        .bindPopup(`<b>Ты (${myNick})</b> ${myStreakBadge}`);
+                    myMarker.setLatLng([lat, lon]).setStyle({ fillColor: color })
+                        .bindPopup(`<b>Ты (${myNick})</b><br>${myStreakBadge}`);
                 } else {
                     myMarker = L.circleMarker([lat, lon], { radius: 10, fillColor: color, color: "white", weight: 2, fillOpacity: 1 })
-                        .addTo(map).bindPopup(`<b>Ты (${myNick})</b> ${myStreakBadge}`);
+                        .addTo(map).bindPopup(`<b>Ты (${myNick})</b><br>${myStreakBadge}`);
                     map.setView([lat, lon], 15);
                 }
             });
-        }, err => console.log(err), {
+        }, err => console.error(err), {
             enableHighAccuracy: true,
             maximumAge: 0,
             timeout: 10000
@@ -526,7 +551,11 @@
         if (!visibleTracks[fName]) return;
         const color = uData.color || "#00ff00";
         const historyObj = uData.history || {};
-        const fPath = Object.keys(historyObj).sort().map(key => [historyObj[key].lat, historyObj[key].lon]);
+        const fPath = Object.keys(historyObj)
+            .sort()
+            .map(key => [historyObj[key].lat, historyObj[key].lon])
+            .filter(pt => Math.abs(pt[0]) > 0.1 && Math.abs(pt[1]) > 0.1);
+
         if (fPath.length < 1) return;
 
         if (polylines[fName]) {
@@ -717,7 +746,11 @@
                 db.ref(`users/${mNick}`).once('value', uSnap => {
                     const uData = uSnap.val() || {};
                     const historyObj = uData.history || {};
-                    const mPath = Object.keys(historyObj).sort().map(k => [historyObj[k].lat, historyObj[k].lon]);
+                    const mPath = Object.keys(historyObj)
+                        .sort()
+                        .map(k => [historyObj[k].lat, historyObj[k].lon])
+                        .filter(pt => Math.abs(pt[0]) > 0.1 && Math.abs(pt[1]) > 0.1);
+
                     const dist = calculateTotalDistance(mPath);
                     
                     const sData = uData.streakData || { count: 0, lastDate: "" };
@@ -766,7 +799,11 @@
 
                     const color = u.color || "#00ff00";
                     const historyObj = u.history || {};
-                    const fPath = Object.keys(historyObj).sort().map(k => [historyObj[k].lat, historyObj[k].lon]);
+                    const fPath = Object.keys(historyObj)
+                        .sort()
+                        .map(k => [historyObj[k].lat, historyObj[k].lon])
+                        .filter(pt => Math.abs(pt[0]) > 0.1 && Math.abs(pt[1]) > 0.1);
+
                     const friendDist = calculateTotalDistance(fPath);
                     
                     const sData = u.streakData || { count: 0, lastDate: "" };
@@ -803,7 +840,7 @@
 
                     if (visibleTracks[fName]) drawFriendTrack(fName, u);
 
-                    if (u.pos) {
+                    if (u.pos && Math.abs(u.pos.lat) > 0.1 && Math.abs(u.pos.lon) > 0.1) {
                         if (markers[fName]) {
                             markers[fName].setLatLng([u.pos.lat, u.pos.lon]).setStyle({ fillColor: color })
                                 .bindPopup(`<b>${fName}</b> ${friendBadgeHTML}<br>(${friendDist} км)`);
